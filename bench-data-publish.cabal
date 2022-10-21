@@ -1,0 +1,37 @@
+cabal-version:      2.0
+name:               bench-data-publish
+version:            0.1.0.0
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Michael Karg
+maintainer:         michael.karg@iohk.io
+category:           Database
+build-type:         Simple
+
+data-files:         db/bench-data-schema.sql
+
+
+executable bench-data-publish
+    main-is:            Main.hs
+    
+    other-modules:      Cardano.Benchmarking.Publish.DBConnection
+                        Cardano.Benchmarking.Publish.DBSchema
+                        Cardano.Benchmarking.Publish.Types
+                        Paths_bench_data_publish
+
+    autogen-modules:    Paths_bench_data_publish
+
+    build-depends:        base
+                        , aeson
+                        , bytestring
+                        , contravariant
+                        , hasql >= 1.6
+                        , text
+                        , time
+
+    hs-source-dirs:     app
+
+    default-language:   Haskell2010
+
+    ghc-options:        -Wall
+    
