@@ -2,7 +2,7 @@
 
 module  Cardano.Benchmarking.Publish.DBSchema where
 
-import           Data.ByteString.Char8              as BS (readFile)
+import           Data.ByteString.Char8              as BS (ByteString, readFile)
 import           Data.Functor.Contravariant         ((>$<))
 
 import           Hasql.Connection                   as DB
@@ -24,8 +24,7 @@ bootstrap conn
       script :: DB.Session ()
       script = DB.sql schema
 
-    _ <- DB.run script conn
-    pure ()
+    DB.run script conn >>= either (error . show) pure
 
 
 -- encoder for table 'cluster_run'
@@ -34,3 +33,9 @@ encClusterRun
   =  (profile   >$< param (nonNullable text))
   <> (batch     >$< param (nonNullable text))
   <> (timestamp >$< param (nonNullable timestamptz))
+
+-- encoder for table 'run_info'
+encRunInfo :: Params (Int, ByteString)
+encRunInfo
+  =  (snd                >$< param (nonNullable jsonBytes))
+  <> (fromIntegral . fst >$< param (nonNullable int4))

@@ -15,6 +15,7 @@ executable bench-data-publish
     main-is:            Main.hs
     
     other-modules:      Cardano.Benchmarking.Publish.DBConnection
+                        Cardano.Benchmarking.Publish.DBQueries
                         Cardano.Benchmarking.Publish.DBSchema
                         Cardano.Benchmarking.Publish.Types
                         Paths_bench_data_publish
@@ -25,6 +26,8 @@ executable bench-data-publish
                         , aeson
                         , bytestring
                         , contravariant
+                        , directory
+                        , filepath
                         , hasql >= 1.6
                         , text
                         , time

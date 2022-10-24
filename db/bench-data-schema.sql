@@ -8,6 +8,10 @@ COMMENT ON SCHEMA api_prototype
 SET search_path TO api_prototype;
 
 
+--
+-- tables containing data
+--
+
 -- describes a cluster run
 CREATE TABLE cluster_run
     ( id SERIAL PRIMARY KEY
@@ -20,7 +24,7 @@ CREATE TABLE cluster_run
 );
 
 CREATE TABLE run_info
-    ( meta JSON
+    ( meta JSON NOT NULL
     , run_id INTEGER NOT NULL
 
     , CONSTRAINT un_info_run_id UNIQUE (run_id)
@@ -38,13 +42,39 @@ CREATE TABLE run_result
         ON DELETE CASCADE
 );
 
+
+--
+-- views for the API
+--
+
+CREATE VIEW runs AS
+    SELECT
+        cr.id AS run_id,
+        cr.run_profile,
+        cr.run_batch,
+        cr.run_at
+    FROM
+        cluster_run cr
+    WHERE
+        cr.run_published = true;
+
+CREATE VIEW run_meta AS
+    SELECT
+        rv.*,
+        ri.meta
+    FROM 
+        runs rv
+        INNER JOIN run_info ri ON rv.run_id = ri.run_id
+    LIMIT 1;
+
 CREATE VIEW test_cdfavg AS
     SELECT
         cr.id AS run_id,
         cr.run_profile,
+        cr.run_batch,
         cr.run_at,
         (rr.clusterperf -> 'sBlocklessCDF'::text) -> 'cdfAverage'::text AS cdfaverage
     FROM cluster_run cr
         INNER JOIN run_result rr ON cr.id = rr.run_id
     WHERE
-        cr.run_published = true
+        cr.run_published = true;
