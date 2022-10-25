@@ -27,10 +27,12 @@ executable bench-data-publish
                         , bytestring
                         , contravariant
                         , directory
+                        , extra
                         , filepath
                         , hasql >= 1.6
                         , text
                         , time
+                        , transformers-except
 
     hs-source-dirs:     app
 

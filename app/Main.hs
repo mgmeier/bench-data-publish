@@ -11,6 +11,7 @@ import           Data.ByteString.Char8                     as BS (pack,
                                                                   readFile)
 import           Data.List                                 (isPrefixOf)
 import           System.Directory
+import           System.Directory.Extra                    (listDirectories)
 import           System.Environment                        (getArgs)
 import           System.FilePath
 
@@ -19,9 +20,13 @@ import           Hasql.Connection                          as DB (Connection)
 import qualified Hasql.Session                             as DB
 
 import           Cardano.Benchmarking.Publish.DBConnection
-import           Cardano.Benchmarking.Publish.DBQueries    (storeRun)
+import           Cardano.Benchmarking.Publish.DBQueries
 import           Cardano.Benchmarking.Publish.DBSchema
 import           Cardano.Benchmarking.Publish.Types
+
+
+dbSchema ::  DBSchema
+dbSchema = DBSchema "api_prototype"
 
 main :: IO ()
 main = do
@@ -33,28 +38,29 @@ main = do
     if null uri
       then putStrLn "please specify postgres URI: --pg-uri postgres://<user>:<password>@<host>:<port>/<db_name>"
       else withDB (BS.pack uri) $ \conn -> do
-        bootstrap conn
-        putStrLn $ "bootstrapped schema 'api_prototype' onto: " ++ uri
+        views <- bootstrap dbSchema conn
+        putStrLn $ "bootstrapped schema '" ++ show dbSchema ++ "' onto: " ++ uri
         runMetas <- getCurrentDirectory >>= searchRuns . (</> "runs")
         putStrLn $ "found runs: " ++ show (length runMetas)
-        mapM_ (storeRunToDB conn) runMetas
+        mapM_ (storeRunToDB conn) (zip [1 ..] runMetas)
+        putStrLn $ "exposed views to API: " ++ show views
 
-storeRunToDB :: DB.Connection -> FilePath -> IO ()
-storeRunToDB conn runMeta
-  = loadRun runMeta >>= \case
-      Left err -> cry err
-      Right run -> storeRun run `DB.run` conn >>= \case
-        Left err' -> cry (show err')
-        _         -> pure ()
+
+storeRunToDB :: DB.Connection -> (Int, FilePath) -> IO ()
+storeRunToDB conn (ix, metaFile)
+  = loadRun metaFile >>= \case
+      Left err -> logStr err
+      Right run -> dbStoreRun dbSchema run `DB.run` conn >>= \case
+        Left err' -> logStr $ show err'
+        _         -> putStrLn $ show ix ++ " -- " ++ show (metaStub run) ++ ": stored"
   where
-    cry errStr = putStrLn $ runMeta ++ ": " ++ errStr
+    logStr str = putStrLn $ show ix ++ " -- " ++ metaFile ++ ": " ++ str
 
 searchRuns :: FilePath -> IO [FilePath]
 searchRuns targetDir
   = do
-    subDirs <- listDirectory targetDir
-    runDirs <- filterM doesDirectoryExist $ map (targetDir </>) subDirs
-    filterM doesFileExist $ map (</> "meta.json") runDirs
+    subDirs <- listDirectories targetDir
+    filterM doesFileExist $ map (</> "meta.json") subDirs
 
 -- given a path to its meta.json, loads all pertaining data into a ClusterRun
 loadRun :: FilePath -> IO (Either String ClusterRun)

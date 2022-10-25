@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards   #-}
 
 module  Cardano.Benchmarking.Publish.DBQueries
-        ( storeRun
+        ( dbStoreRun
         ) where
 
 import           Data.ByteString.Char8                 (ByteString)
@@ -15,37 +15,43 @@ import           Cardano.Benchmarking.Publish.DBSchema
 import           Cardano.Benchmarking.Publish.Types
 
 
-getRunId :: Statement MetaStub (Maybe Int)
-getRunId
+getRunId :: ByteString -> Statement MetaStub (Maybe Int)
+getRunId schema
   = Statement sql encClusterRun (rowMaybe decInt4) False
   where
-    sql = "SELECT id FROM api_prototype.cluster_run WHERE run_profile=$1 AND run_batch=$2 AND run_at=$3"
+    sql = "SELECT id FROM " <> schema <> ".cluster_run\ 
+          \ WHERE run_profile=$1 AND run_batch=$2 AND run_at=$3"
 
-createRunId :: Statement MetaStub Int
-createRunId
+createRunId :: ByteString -> Statement MetaStub Int
+createRunId schema
   = Statement sql encClusterRun (singleRow decInt4) False
   where
-    sql = "INSERT INTO api_prototype.cluster_run (run_profile, run_batch, run_at)\
+    sql = "INSERT INTO " <> schema <> ".cluster_run (run_profile, run_batch, run_at)\
           \ VALUES ($1,$2,$3)\
           \ ON CONFLICT ON CONSTRAINT un_run_profile DO NOTHING\
           \ RETURNING id"
 
-setMeta :: Statement (Int, ByteString) ()
-setMeta
+setMeta :: ByteString -> Statement (Int, ByteString) ()
+setMeta schema
   = Statement sql encRunInfo Dec.noResult False
   where
-    sql = "INSERT INTO api_prototype.run_info VALUES ($1,$2)\
+    sql = "INSERT INTO " <> schema <> ".run_info VALUES ($1,$2)\
           \ ON CONFLICT ON CONSTRAINT un_info_run_id DO UPDATE\
           \ SET meta=$1"
 
-decInt4 :: Row Int
-decInt4 = fromIntegral <$> (column . nonNullable) Dec.int4
+setResult :: ByteString -> Statement (Int, Maybe ByteString, Maybe ByteString) ()
+setResult schema
+  = Statement sql encRunResult Dec.noResult False
+  where
+    sql = "INSERT INTO " <> schema <> ".run_result VALUES ($1,$2,$3)\
+          \ ON CONFLICT ON CONSTRAINT un_result_run_id DO UPDATE\
+          \ SET blockprop=$1, clusterperf=$2"
 
 
-
-storeRun :: ClusterRun -> Session ()
-storeRun ClusterRun{..}
+dbStoreRun :: DBSchema -> ClusterRun -> Session ()
+dbStoreRun (DBSchema schemaName) ClusterRun{..}
   = do
-    runId <- statement metaStub getRunId >>=
-        maybe (statement metaStub createRunId) pure
-    statement (runId, runMeta) setMeta
+    runId <- statement metaStub (getRunId schemaName) >>=
+        maybe (statement metaStub (createRunId schemaName)) pure
+    statement (runId, runMeta) (setMeta schemaName)
+    statement (runId, runBlockProp, runClusterPerf) (setResult schemaName)

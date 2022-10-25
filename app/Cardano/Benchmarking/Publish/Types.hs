@@ -5,7 +5,7 @@
 module  Cardano.Benchmarking.Publish.Types where
 
 import           Data.ByteString.Char8  (ByteString)
-import           Data.Text              (Text)
+import           Data.Text              as T (Text, unpack)
 import           Data.Time.Clock        (UTCTime)
 import           Data.Time.Clock.System
 import           GHC.Generics           (Generic)
@@ -29,7 +29,10 @@ data MetaStub
     , batch     :: Text
     , timestamp :: UTCTime
     }
-    deriving (Show, Generic)
+    deriving (Generic)
+
+instance Show MetaStub where
+  show (MetaStub a b c) = T.unpack a ++ "_" ++ T.unpack b ++ "_" ++ show c
 
 instance FromJSON MetaStub where
     parseJSON = withObject "MetaStub" $ \o_ -> do
