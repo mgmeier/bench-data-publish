@@ -8,10 +8,12 @@ CREATE TABLE cluster_run
     , run_profile TEXT NOT NULL
     , run_batch TEXT NOT NULL
     , run_at TIMESTAMPTZ NOT NULL
-    , run_published BOOLEAN NOT NULL DEFAULT false
+    , run_published BOOLEAN NOT NULL DEFAULT true
 
     , CONSTRAINT un_run_profile UNIQUE (run_profile, run_batch, run_at)
 );
+-- FIXME: during development, publish all runs by default;
+-- set run_published DEFAUL false for production
 
 CREATE TABLE run_info
     ( meta JSON NOT NULL
@@ -42,9 +44,11 @@ CREATE VIEW runs AS
         cr.id AS run_id,
         cr.run_profile,
         cr.run_batch,
-        cr.run_at
+        cr.run_at,
+        ri.meta #>> '{meta,pins,cardano-node}' as commit_id
     FROM
         cluster_run cr
+        JOIN run_info ri ON cr.id = ri.run_id
     WHERE
         cr.run_published = true;
 
@@ -54,17 +58,18 @@ CREATE VIEW run_meta AS
         ri.meta
     FROM 
         runs rv
-        INNER JOIN run_info ri ON rv.run_id = ri.run_id
-    LIMIT 1;
+        JOIN run_info ri ON rv.run_id = ri.run_id;
 
-CREATE VIEW test_cdfavg AS
+CREATE VIEW blockprop_cdf AS
+    WITH cte AS (
+        SELECT * FROM run_result WHERE blockprop IS NOT NULL
+    ) 
     SELECT
-        cr.id AS run_id,
-        cr.run_profile,
-        cr.run_batch,
-        cr.run_at,
-        (rr.clusterperf -> 'sBlocklessCDF'::text) -> 'cdfAverage'::text AS cdfaverage
-    FROM cluster_run cr
-        INNER JOIN run_result rr ON cr.id = rr.run_id
+        cte.run_id,
+        obj.key AS cdfName,
+        obj.value AS cdf 
+    FROM
+        cte,
+        jsonb_each(cte.blockprop) AS obj
     WHERE
-        cr.run_published = true;
+        obj.value ? 'cdfSize';

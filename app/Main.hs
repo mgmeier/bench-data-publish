@@ -38,12 +38,20 @@ main = do
     if null uri
       then putStrLn "please specify postgres URI: --pg-uri postgres://<user>:<password>@<host>:<port>/<db_name>"
       else withDB (BS.pack uri) $ \conn -> do
-        views <- bootstrap dbSchema conn
+        views <- either (error . show) pure =<< bootstrap dbSchema conn
         putStrLn $ "bootstrapped schema '" ++ show dbSchema ++ "' onto: " ++ uri
         runMetas <- getCurrentDirectory >>= searchRuns . (</> "runs")
         putStrLn $ "found runs: " ++ show (length runMetas)
         mapM_ (storeRunToDB conn) (zip [1 ..] runMetas)
         putStrLn $ "exposed views to API: " ++ show views
+
+-- TODO:
+-- commands:
+-- import <meta.json>
+-- import-all <dir>
+-- publish <meta.json>
+-- publish-all
+
 
 
 storeRunToDB :: DB.Connection -> (Int, FilePath) -> IO ()
