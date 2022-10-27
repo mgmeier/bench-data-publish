@@ -59,16 +59,16 @@ bootstrap (DBSchema schemaName) conn
     preamble =
       "DROP SCHEMA IF EXISTS " <> schemaName <> " CASCADE;\n\
       \CREATE SCHEMA " <> schemaName <> ";\n\
-      \COMMENT ON SCHEMA " <> schemaName <> " IS 'schema for benchmarking cluster run data';\n\
+      \COMMENT ON SCHEMA " <> schemaName <> " IS 'This schema provides benchmarking cluster run data';\n\
       \SET search_path TO " <> schemaName <> ";\n"
 
     getViews :: DB.Session [Text]
     getViews = statement () $
-      Statement
-        ("SELECT viewname FROM pg_catalog.pg_views WHERE schemaname='" <> schemaName <> "'")
-        Enc.noParams
-        (rowList decText)
-        False
+      Statement queryViewNames Enc.noParams (rowList decText) False
+      where
+        queryViewNames = 
+          "SELECT viewname FROM pg_catalog.pg_views WHERE schemaname='" <> schemaName <> "'\
+          \ UNION SELECT matviewname FROM pg_catalog.pg_matviews WHERE schemaname='" <> schemaName <> "'"
 
     grant :: ByteString -> DB.Session ()
     grant commaSep = DB.sql $
@@ -87,7 +87,7 @@ encClusterRun
 -- encoder for table 'run_info'
 encRunInfo :: Params (Int, ByteString)
 encRunInfo
-  =  (snd                >$< param (Enc.nonNullable Enc.jsonBytes))
+  =  (snd                >$< param (Enc.nonNullable Enc.jsonbBytes))
   <> (fromIntegral . fst >$< param (Enc.nonNullable Enc.int4))
 
 -- encoder for table 'run_result'

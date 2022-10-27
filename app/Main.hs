@@ -43,6 +43,7 @@ main = do
         runMetas <- getCurrentDirectory >>= searchRuns . (</> "runs")
         putStrLn $ "found runs: " ++ show (length runMetas)
         mapM_ (storeRunToDB conn) (zip [1 ..] runMetas)
+        _ <- dbRefreshView dbSchema `DB.run` conn
         putStrLn $ "exposed views to API: " ++ show views
 
 -- TODO:

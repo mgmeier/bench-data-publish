@@ -3,12 +3,13 @@
 
 module  Cardano.Benchmarking.Publish.DBQueries
         ( dbStoreRun
+        , dbRefreshView
         ) where
 
 import           Data.ByteString.Char8                 (ByteString)
 
 import           Hasql.Decoders                        as Dec
-import           Hasql.Session                         hiding (sql)
+import qualified Hasql.Session                         as DB
 import           Hasql.Statement
 
 import           Cardano.Benchmarking.Publish.DBSchema
@@ -19,7 +20,7 @@ getRunId :: ByteString -> Statement MetaStub (Maybe Int)
 getRunId schema
   = Statement sql encClusterRun (rowMaybe decInt4) False
   where
-    sql = "SELECT id FROM " <> schema <> ".cluster_run\ 
+    sql = "SELECT id FROM " <> schema <> ".cluster_run\
           \ WHERE run_profile=$1 AND run_batch=$2 AND run_at=$3"
 
 createRunId :: ByteString -> Statement MetaStub Int
@@ -48,10 +49,14 @@ setResult schema
           \ SET blockprop=$1, clusterperf=$2"
 
 
-dbStoreRun :: DBSchema -> ClusterRun -> Session ()
+dbStoreRun :: DBSchema -> ClusterRun -> DB.Session ()
 dbStoreRun (DBSchema schemaName) ClusterRun{..}
   = do
-    runId <- statement metaStub (getRunId schemaName) >>=
-        maybe (statement metaStub (createRunId schemaName)) pure
-    statement (runId, runMeta) (setMeta schemaName)
-    statement (runId, runBlockProp, runClusterPerf) (setResult schemaName)
+    runId <- DB.statement metaStub (getRunId schemaName) >>=
+        maybe (DB.statement metaStub (createRunId schemaName)) pure
+    DB.statement (runId, runMeta) (setMeta schemaName)
+    DB.statement (runId, runBlockProp, runClusterPerf) (setResult schemaName)
+
+dbRefreshView :: DBSchema -> DB.Session ()
+dbRefreshView (DBSchema schemaName)
+  = DB.sql $ "REFRESH MATERIALIZED VIEW " <> schemaName <> ".run;"
