@@ -6,11 +6,11 @@
 CREATE TABLE cluster_run
     ( id SERIAL PRIMARY KEY
     , run_profile TEXT NOT NULL
-    , run_batch TEXT NOT NULL
+    , run_commit TEXT NOT NULL
     , run_at TIMESTAMPTZ NOT NULL
     , run_published BOOLEAN NOT NULL DEFAULT true
 
-    , CONSTRAINT un_run_profile UNIQUE (run_profile, run_batch, run_at)
+    , CONSTRAINT un_run_profile UNIQUE (run_profile, run_commit, run_at)
 );
 -- FIXME: during development, publish all runs by default;
 -- set run_published DEFAULT false for production
@@ -44,9 +44,9 @@ CREATE MATERIALIZED VIEW run AS
     SELECT
         cr.id AS run_id,
         cr.run_profile,
-        cr.run_batch,
+        cr.run_commit,
         cr.run_at,
-        ri.meta #>> '{meta,pins,cardano-node}' AS run_commit,
+        ri.meta #>> '{meta,batch}' AS run_name,
 		ri.meta #>> '{meta,profile_content,generator,era}' AS run_era,
         CASE 
             WHEN (ri.meta #> '{meta,profile_content,generator,plutusMode}') :: BOOLEAN

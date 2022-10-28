@@ -32,9 +32,10 @@ instance Show DBSchema where
 
 
 -- bootstraps schema onto a DB
--- destructive: drops a possible pre-existing schema
-bootstrap :: DBSchema -> Connection -> IO (Either DB.QueryError [Text])
-bootstrap (DBSchema schemaName) conn
+-- and grants read access of all views defined to the specified role
+-- destructive: drops a possible pre-existing schema with all data
+bootstrap :: DBSchema -> ByteString -> Connection -> IO (Either DB.QueryError [Text])
+bootstrap (DBSchema schemaName) anonRole conn
   = runExceptT $ do
       schema <- liftIO $
         BS.readFile =<< getDataFileName "db/bench-data-schema.sql"
@@ -71,10 +72,11 @@ bootstrap (DBSchema schemaName) conn
           \ UNION SELECT matviewname FROM pg_catalog.pg_matviews WHERE schemaname='" <> schemaName <> "'"
 
     grant :: ByteString -> DB.Session ()
-    grant commaSep = DB.sql $
-      "GRANT USAGE ON SCHEMA " <> schemaName <> " TO api_readonly;\n"
-      <> if BS.null commaSep then mempty else
-         "GRANT SELECT ON " <> commaSep <> " TO api_readonly\n;"
+    grant commaSep =
+      let toAnon = " TO " <> anonRole <> ";\n"
+      in DB.sql $
+        "GRANT USAGE ON SCHEMA " <> schemaName <> toAnon
+        <> if BS.null commaSep then mempty else "GRANT SELECT ON " <> commaSep <> toAnon
 
 
 -- encoder for table 'cluster_run'
@@ -97,6 +99,11 @@ encRunResult
   <> (thd3                >$< param (Enc.nullable Enc.jsonbBytes))
   <> (fromIntegral . fst3 >$< param (Enc.nonNullable Enc.int4))
 
+-- decoder for table 'cluster_run' (including id and published status)
+decClusterRun :: Row (Int, MetaStub, Bool)
+decClusterRun
+  = (,,) <$> decInt4 <*> decMetaStub <*> decBool
+
 
 -- convenience definitions
 
@@ -105,3 +112,13 @@ decInt4 = fromIntegral <$> (column . Dec.nonNullable) Dec.int4
 
 decText :: Row Text
 decText = (column . Dec.nonNullable) Dec.text
+
+decBool :: Row Bool
+decBool = (column . Dec.nonNullable) Dec.bool
+
+decMetaStub :: Row MetaStub
+decMetaStub
+  = MetaStub
+    <$> decText
+    <*> decText
+    <*> (column . Dec.nonNullable) Dec.timestamptz

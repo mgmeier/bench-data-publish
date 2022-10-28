@@ -18,6 +18,7 @@ executable bench-data-publish
                         Cardano.Benchmarking.Publish.DBQueries
                         Cardano.Benchmarking.Publish.DBSchema
                         Cardano.Benchmarking.Publish.Types
+                        Command
                         Paths_bench_data_publish
 
     autogen-modules:    Paths_bench_data_publish
@@ -30,9 +31,11 @@ executable bench-data-publish
                         , extra
                         , filepath
                         , hasql >= 1.6
+                        , optparse-applicative
                         , text
                         , time
                         , transformers-except
+                        , unix
 
     hs-source-dirs:     app
 

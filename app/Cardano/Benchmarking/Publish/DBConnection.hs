@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module  Cardano.Benchmarking.Publish.DBConnection (withDB) where
+module  Cardano.Benchmarking.Publish.DBConnection
+        ( withDB
+        ) where
 
 import           Control.Exception     (finally)
 import           Data.ByteString.Char8 as BS (ByteString, unpack)
@@ -8,7 +10,7 @@ import           Data.ByteString.Char8 as BS (ByteString, unpack)
 import           Hasql.Connection      as DB
 
 
-withDB :: ByteString -> (Connection -> IO a) -> IO a
+withDB :: DB.Settings -> (Connection -> IO a) -> IO a
 withDB connString action
   = DB.acquire connString >>= either (error . connError) go
   where
