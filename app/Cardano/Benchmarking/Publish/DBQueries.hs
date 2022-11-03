@@ -4,14 +4,17 @@
 
 module  Cardano.Benchmarking.Publish.DBQueries
         ( dbGetRuns
+        , dbPublishRun
         , dbStoreRun
         , dbRefreshView
         ) where
 
+import           Control.Monad                         (unless)
 import           Data.ByteString.Char8                 (ByteString)
-
 import           Hasql.Decoders                        as Dec
-import           Hasql.Encoders                        as Enc (noParams)
+import           Hasql.Encoders                        as Enc (bool, noParams,
+                                                               nonNullable,
+                                                               param)
 import qualified Hasql.Session                         as DB
 import           Hasql.Statement
 
@@ -41,6 +44,19 @@ getRuns schema
   where
     sql = "SELECT * FROM " <> schema <> ".cluster_run ORDER BY id"
 
+setRunPublished :: ByteString -> Statement (Bool, MetaStub) (Maybe Bool)
+setRunPublished schema
+  = Statement sql enc (rowMaybe decBool) False
+  where
+    enc = (fst >$< param (Enc.nonNullable Enc.bool)) <> (snd >$< encClusterRun)
+    sql = "WITH cte AS\
+          \ (SELECT id,run_published FROM " <> schema <> ".cluster_run WHERE run_profile=$2 AND run_commit=$3 AND run_at=$4)\
+          \ UPDATE " <> schema <> ".cluster_run cr\
+          \ SET run_published=$1\
+          \ FROM cte\
+          \ WHERE cr.id=cte.id\
+          \ RETURNING cte.run_published"
+
 setMeta :: ByteString -> Statement (Int, ByteString) ()
 setMeta schema
   = Statement sql encRunInfo Dec.noResult False
@@ -56,6 +72,7 @@ setResult schema
     sql = "INSERT INTO " <> schema <> ".run_result VALUES ($1,$2,$3)\
           \ ON CONFLICT ON CONSTRAINT un_result_run_id DO UPDATE\
           \ SET blockprop=$1, clusterperf=$2"
+
 
 
 -- returns whether the run has been created (True) or updated (False)
@@ -80,3 +97,15 @@ dbRefreshView (DBSchema schemaName)
 dbGetRuns :: DBSchema -> DB.Session [(Int, MetaStub, Bool)]
 dbGetRuns (DBSchema schemaName)
   = DB.statement () (getRuns schemaName)
+
+-- if this action did actually change the published status, it implicitly refreshes the materialized view
+-- returns False if run was not found on DB
+dbPublishRun :: DBSchema -> MetaStub -> Bool -> DB.Session Bool
+dbPublishRun schema@(DBSchema schemaName) run published
+  = do
+    previous <- DB.statement (published, run) (setRunPublished schemaName)
+    case previous of
+      Just published' -> do
+        unless (published == published') (dbRefreshView schema)
+        pure True
+      _ -> pure False

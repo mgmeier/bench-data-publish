@@ -8,7 +8,8 @@ maintainer:         michael.karg@iohk.io
 category:           Database
 build-type:         Simple
 
-data-files:         db/bench-data-schema.sql
+data-files:         db/bench-data-tables.sql
+                    db/bench-data-views.sql
 
 
 executable bench-data-publish
@@ -34,6 +35,7 @@ executable bench-data-publish
                         , optparse-applicative
                         , text
                         , time
+                        , transformers
                         , transformers-except
                         , unix
 

@@ -1,13 +1,17 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module  Cardano.Benchmarking.Publish.DBSchema where
+module  Cardano.Benchmarking.Publish.DBSchema
+        ( module Cardano.Benchmarking.Publish.DBSchema
+        , module Contra
+        ) where
 
 import           Control.Monad.IO.Class
+import           Control.Monad.Trans.Except         (ExceptT)
 import           Control.Monad.Trans.Except.Extra
 import           Data.ByteString.Char8              as BS (ByteString, null,
                                                            readFile, unpack)
-import           Data.Functor.Contravariant         ((>$<))
+import           Data.Functor.Contravariant         as Contra ((>$<))
 import           Data.Text                          as T (Text, intercalate,
                                                           snoc)
 import           Data.Text.Encoding                 as T (decodeLatin1,
@@ -31,43 +35,65 @@ instance Show DBSchema where
   show (DBSchema s) = BS.unpack s
 
 
--- bootstraps schema onto a DB
--- and grants read access of all views defined to the specified role
--- destructive: drops a possible pre-existing schema with all data
-bootstrap :: DBSchema -> ByteString -> Connection -> IO (Either DB.QueryError [Text])
-bootstrap (DBSchema schemaName) anonRole conn
-  = runExceptT $ do
-      schema <- liftIO $
-        BS.readFile =<< getDataFileName "db/bench-data-schema.sql"
+liftDBRun :: MonadIO m => DB.Session a -> Connection -> ExceptT String m a
+liftDBRun session conn
+  = do
+    result <- liftIO $ session `DB.run` conn
+    firstExceptT show $ hoistEither result
+
+setSearchPath :: DBSchema -> ByteString
+setSearchPath (DBSchema schemaName)
+  = "SET search_path TO " <> schemaName <> ";\n"
+
+-- bootstraps schema with empty tables onto a DB
+-- TODO: installs trigger for schema refresh
+-- is destructive: drops a possible pre-existing schema with all data
+bootstrap :: DBSchema -> Connection -> ExceptT String IO ()
+bootstrap schema@(DBSchema schemaName) conn
+  = do
+      tableSql <- handleIOExceptT show $
+        BS.readFile =<< getDataFileName "db/bench-data-tables.sql"
       let
         script :: DB.Session ()
-        script = DB.sql (preamble <> schema)
+        script = DB.sql $ preamble <> setSearchPath schema <> tableSql
 
-      _ <- liftDBRun script
-      views <- liftDBRun getViews
+      liftDBRun script conn
+  where
+    preamble :: ByteString
+    preamble =
+      "DROP SCHEMA IF EXISTS " <> schemaName <> " CASCADE;\n\
+      \CREATE SCHEMA " <> schemaName <> ";\n\
+      \COMMENT ON SCHEMA " <> schemaName <> " IS 'This schema provides benchmarking cluster run data';\n"
+
+-- updates API-facing views on the DB without touching any tables or stored data
+-- and grants read access of all views defined to the specified role
+-- is non-destructive
+updateViews :: DBSchema -> ByteString -> Connection -> ExceptT String IO [Text]
+updateViews (DBSchema schemaName) anonRole conn
+  = do
+      viewSql <- handleIOExceptT show $
+        BS.readFile =<< getDataFileName "db/bench-data-views.sql"
+      let
+        script :: DB.Session ()
+        script = DB.sql viewSql
+
+      _ <- liftDBRun script conn
+
+      views <- liftDBRun getViews conn
       let
         sch = T.decodeLatin1 schemaName `T.snoc` '.'
         commaSep = T.intercalate "," $ (sch <>) <$> views
         commaSepBS = T.encodeUtf8 commaSep
 
-      _ <- liftDBRun (grant commaSepBS)
+      _ <- liftDBRun (grant commaSepBS) conn
+      _ <- postgrestNotify conn
       pure views
   where
-    liftDBRun session
-      = hoistEither =<< liftIO (DB.run session conn)
-
-    preamble :: ByteString
-    preamble =
-      "DROP SCHEMA IF EXISTS " <> schemaName <> " CASCADE;\n\
-      \CREATE SCHEMA " <> schemaName <> ";\n\
-      \COMMENT ON SCHEMA " <> schemaName <> " IS 'This schema provides benchmarking cluster run data';\n\
-      \SET search_path TO " <> schemaName <> ";\n"
-
     getViews :: DB.Session [Text]
     getViews = statement () $
       Statement queryViewNames Enc.noParams (rowList decText) False
       where
-        queryViewNames = 
+        queryViewNames =
           "SELECT viewname FROM pg_catalog.pg_views WHERE schemaname='" <> schemaName <> "'\
           \ UNION SELECT matviewname FROM pg_catalog.pg_matviews WHERE schemaname='" <> schemaName <> "'"
 
@@ -78,6 +104,11 @@ bootstrap (DBSchema schemaName) anonRole conn
         "GRANT USAGE ON SCHEMA " <> schemaName <> toAnon
         <> if BS.null commaSep then mempty else "GRANT SELECT ON " <> commaSep <> toAnon
 
+-- if there has been any change in DB object definitions relevant to PostgREST for
+-- serving the API (views, in this case), we need to notify it to rebuild its schema cache
+postgrestNotify :: Connection -> ExceptT String IO ()
+postgrestNotify
+  = liftDBRun (DB.sql "NOTIFY pgrst,'reload schema';")
 
 -- encoder for table 'cluster_run'
 encClusterRun :: Params MetaStub

@@ -6,9 +6,11 @@ module Main where
 
 import           Control.Exception
 import           Control.Monad
+import           Control.Monad.Trans.Except                (runExceptT)
 import           Data.Bool                                 (bool)
 import           Data.ByteString.Char8                     as BS (empty, pack,
                                                                   readFile)
+
 import           System.Directory
 import           System.Directory.Extra                    (listDirectories)
 import           System.Environment                        (lookupEnv)
@@ -38,61 +40,77 @@ main
 
 eval :: Config -> DB.Settings -> IO ()
 eval Config{..} dbSettings
-    = case appCommand of
+  = case appCommand of
 
-      Bootstrap anonRole
-        | not appForce -> putStrLn "'bootstrap' requires -f (force); it is a destructive operation"
-        | otherwise -> withDB dbSettings $ \conn -> do
-          bootstrap dbSchema (BS.pack anonRole) conn >>= \case
-            Left err -> print err
+    Bootstrap anonRole_
+      | not appForce -> putStrLn "'bootstrap' requires -f (force); it is a destructive operation"
+      | otherwise -> withDB dbSettings $ \conn -> do
+          let anonRole = BS.pack anonRole_
+          result <- runExceptT $ do
+              bootstrap dbSchema conn
+              updateViews dbSchema anonRole conn
+          case result of
+            Left err -> errorMsg $ show err
             Right views -> putStrLn $
               "successfully bootstrapped schema: '" ++ appDBSchema ++ "'\n\
-              \views exposed to API (role '" ++ anonRole ++ "'): " ++ show views
+              \views exposed to API (role '" ++ anonRole_ ++ "'): " ++ show views
 
-      ImportAll targetDir -> do
-        runMetas <- searchRuns targetDir
-        putStrLn $ "found runs: " ++ show (length runMetas)
-        unless (null runMetas) $
-          withDB dbSettings $ \conn ->
-            storeRunsToDB dbSchema conn runMetas
-
-      Import targetFile ->
+    ImportAll targetDir -> do
+      runMetas <- searchRuns targetDir
+      putStrLn $ "found runs: " ++ show (length runMetas)
+      unless (null runMetas) $
         withDB dbSettings $ \conn ->
-          storeRunsToDB dbSchema conn [targetFile]
+          storeRunsToDB dbSchema conn runMetas
 
-      List ->
-        withDB dbSettings $ \conn ->
-          dbGetRuns dbSchema `DB.run` conn >>= \case
-            Left err -> putStrLn $ "List: -- ERROR: " ++ show err
-            Right runs -> do
-              forM_ runs $ \(ix, meta, publ) ->
-                printf "%3i %s -- %s\n" ix (published publ) (show meta)
-              printf "----\n%i runs\n" (length runs)
+    Import targetFile ->
+      withDB dbSettings $ \conn ->
+        storeRunsToDB dbSchema conn [targetFile]
 
-      cmd -> putStrLn $ "command not yet implemented: " ++ show cmd
+    List ->
+      withDB dbSettings $ \conn ->
+        dbGetRuns dbSchema `DB.run` conn >>= \case
+          Left err -> errorMsg $ show err
+          Right runs -> do
+            forM_ runs $ \(ix, meta, publ) ->
+              printf "%3i %s -- %s\n" ix (isPublished publ) (show meta)
+            printf "----\n%i runs\n" (length runs)
+
+    Publish publish target ->
+      loadMetaStub target >>= \case
+        Left err -> errorMsg err
+        Right meta -> withDB dbSettings $ \conn -> do
+          putStr $ bool "un-" "" publish ++ "publishing: " ++ target ++ " -- "
+          dbPublishRun dbSchema meta publish `DB.run` conn >>= \case
+            Left e      -> errorMsg $ show e
+            Right found -> putStrLn $ bool "(run not in DB)" "DONE" found
+
+    cmd -> putStrLn $ "command not yet implemented: " ++ show cmd
 
   where
-    dbSchema = DBSchema (BS.pack appDBSchema)
-    published p = bool '-' '+' p : "published"
+    dbSchema      = DBSchema (BS.pack appDBSchema)
+    isPublished p = bool '-' '+' p : "published"
+    errorMsg msg  = putStrLn $ "ERROR: (" ++ show appCommand ++ ") -- " ++ msg
 
 storeRunsToDB :: DBSchema -> DB.Connection -> [FilePath] -> IO ()
 storeRunsToDB dbSchema conn metaFiles
   = do
-    created <- forM metaFiles $ \metaFile -> do
-      putStr $ "storing: " ++ metaFile ++ " -- "
-      loadRun metaFile >>= \case
-        Left err -> errorStore err
-        Right run -> dbStoreRun dbSchema run `DB.run` conn
-          >>= either
-            (errorStore . show)
-            (\created -> putStrLn (bool "UPDATED" "CREATED" created) >> pure created)
+    anyCreated <- foldM storeClusterRun False metaFiles
 
     -- for any change to the run list itself (not the associated results)
     -- we need to refresh the materialized view
-    when (or created) $
+    when anyCreated $
       void $ dbRefreshView dbSchema `DB.run` conn
   where
-    errorStore str = putStrLn ("ERROR: " ++ str) >> pure False
+    errorMsg result msg = putStrLn ("ERROR: " ++ msg) >> pure result
+    storeClusterRun created metaFile
+      = do
+        putStr $ "storing: " ++ metaFile ++ " -- "
+        loadClusterRun metaFile >>= \case
+          Left err -> errorMsg created err
+          Right run -> dbStoreRun dbSchema run `DB.run` conn
+            >>= either
+              (errorMsg created . show)
+              (\created' -> putStrLn (bool "UPDATED" "CREATED" created') >> pure (created || created'))
 
 searchRuns :: FilePath -> IO [FilePath]
 searchRuns targetDir
@@ -100,9 +118,18 @@ searchRuns targetDir
     subDirs <- listDirectories targetDir
     filterM doesFileExist $ map (</> "meta.json") subDirs
 
+normalizeMetaFilePath :: FilePath -> FilePath
+normalizeMetaFilePath metaFile
+  | takeFileName metaFile == "meta.json" = metaFile
+  | otherwise = metaFile </> "meta.json"
+
+loadMetaStub :: FilePath -> IO (Either String MetaStub)
+loadMetaStub
+  = eitherDecodeFileStrict' . normalizeMetaFilePath
+
 -- given a path to its directory or meta.json, loads all pertaining data into a ClusterRun
-loadRun :: FilePath -> IO (Either String ClusterRun)
-loadRun metaFile_
+loadClusterRun :: FilePath -> IO (Either String ClusterRun)
+loadClusterRun metaFile_
   = do
     runMeta <- BS.readFile metaFile
     case eitherDecodeStrict' runMeta of
@@ -114,9 +141,7 @@ loadRun metaFile_
   `catch`
     \(SomeException e) -> pure (Left $ show e)
   where
-    metaFile
-      | takeFileName metaFile_ == "meta.json" = metaFile_
-      | otherwise = metaFile_ </> "meta.json"
+    metaFile = normalizeMetaFilePath metaFile_
     analysis = takeDirectory metaFile </> "analysis"
     tryReadFile f
       = doesFileExist f >>= bool (pure Nothing) (Just <$> BS.readFile f)

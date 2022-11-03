@@ -12,12 +12,12 @@ import           Options.Applicative as Opt
 
 
 data Command
-  = Publish FilePath
-  | Unpublish FilePath
+  = Publish Bool FilePath
   | Import FilePath
   | ImportAll FilePath
   | List
   | Bootstrap String
+  | UpdateViews String
   deriving Show
 
 data DBCredentials
@@ -72,14 +72,17 @@ parseConfig
           (pure List)
           "List all runs"
       , cmdParser "publish"
-          (Publish <$> parseRunDirArg)
+          (Publish True <$> parseRunDirArg)
           "Publish specified run to API"
       , cmdParser "unpublish"
-          (Unpublish <$> parseRunDirArg)
+          (Publish False <$> parseRunDirArg)
           "Unpublish specified run from API"
       , cmdParser "bootstrap"
           (Bootstrap <$> strArgument (metavar "ROLE" <> help "Anonymous/read-only role on the DB"))
           "Bootstrap schema onto DB, CLEARING PREVIOUS SCHEMA"
+      , cmdParser "update-views"
+          (UpdateViews <$> strArgument (metavar "ROLE" <> help "Anonymous/read-only role on the DB"))
+          "Update API facing views in the schema only, not touching any tables or stored data"
       ]
     cmdParser cmd parser description = command cmd $ info parser $ progDesc description
 
