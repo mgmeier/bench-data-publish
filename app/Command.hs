@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-partial-fields #-}
 
 module Command
         ( Command (..)
@@ -22,7 +23,7 @@ data Command
 
 data DBCredentials
   = PostgresURI String
-  | DBCreds { 
+  | DBCreds {
         dbName :: String
       , dbUser :: Maybe String
       , dbPass :: Maybe String
@@ -92,8 +93,8 @@ parseDBCredentials =
   where
     postgresUri
       = PostgresURI <$> strOption
-        ( long "pg-uri" 
-        <> metavar "URI" 
+        ( long "pg-uri"
+        <> metavar "URI"
         <> help ("postgres[ql]:// URI of DB (default: $" ++ envVarDBURI ++ ")")
         )
     parseCreds
@@ -121,7 +122,7 @@ parseForce
 parseRunDirArg :: Parser FilePath
 parseRunDirArg
   = strArgument
-    ( metavar "FILE|PATH" 
-    <> help "Path of a benchmarking run or its meta.json" 
+    ( metavar "FILE|PATH"
+    <> help "Path of a benchmarking run or its meta.json"
     <> completer (bashCompleter "file")
     )

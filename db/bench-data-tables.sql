@@ -8,12 +8,10 @@ CREATE TABLE cluster_run
     , run_profile TEXT NOT NULL
     , run_commit TEXT NOT NULL
     , run_at TIMESTAMPTZ NOT NULL
-    , run_published BOOLEAN NOT NULL DEFAULT true
+    , run_published BOOLEAN NOT NULL DEFAULT false
 
     , CONSTRAINT un_run_profile UNIQUE (run_profile, run_commit, run_at)
 );
--- FIXME: during development, publish all runs by default;
--- set run_published DEFAULT false for production
 
 CREATE TABLE run_info
     ( meta JSONB NOT NULL

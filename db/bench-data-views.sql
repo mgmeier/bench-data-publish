@@ -3,6 +3,7 @@
 --
 
 -- a base view containing every attribute viable for filtering all published runs
+DROP MATERIALIZED VIEW IF EXISTS run CASCADE;
 CREATE MATERIALIZED VIEW run AS
     SELECT
         cr.id AS run_id,
@@ -27,7 +28,7 @@ COMMENT ON MATERIALIZED VIEW run IS
     'All runs on the benchmarking cluster';
 
 -- this view facilitates access to the raw JSON data that was imported
-CREATE VIEW run_raw AS
+CREATE OR REPLACE VIEW run_raw AS
     SELECT
         r.*,
         ri.meta,
@@ -42,7 +43,7 @@ COMMENT ON VIEW run_raw IS
     'Raw JSON data for each benchmarking cluster run, as originally imported';
 
 -- a view over all existing blockprop results from published runs
-CREATE VIEW blockprop AS
+CREATE OR REPLACE VIEW blockprop AS
     WITH cte AS (
         SELECT
             r.run_id,
@@ -66,7 +67,7 @@ CREATE VIEW blockprop AS
         obj.value ? 'cdfSize';
 
 -- a list of all known blockprop metrics
-CREATE VIEW blockprop_metric AS
+CREATE OR REPLACE VIEW blockprop_metric AS
     SELECT
         DISTINCT cdf_name
     FROM
@@ -75,7 +76,7 @@ CREATE VIEW blockprop_metric AS
         cdf_name;
 
 -- a view over all existing clsuterperf results from published runs
-CREATE VIEW clusterperf AS
+CREATE OR REPLACE VIEW clusterperf AS
     WITH cte AS (
         SELECT
             r.run_id,
@@ -99,7 +100,7 @@ CREATE VIEW clusterperf AS
         obj.value ? 'cdfSize';
 
 -- a list of all known clusterperf metrics
-CREATE VIEW clusterperf_metric AS
+CREATE OR REPLACE VIEW clusterperf_metric AS
     SELECT
         DISTINCT cdf_name
     FROM
@@ -108,7 +109,7 @@ CREATE VIEW clusterperf_metric AS
         cdf_name;
 
 -- a composition of run attributes and the view on blockprop results
-CREATE VIEW run_blockprop AS
+CREATE OR REPLACE VIEW run_blockprop AS
    SELECT
         r.*,
         b.cdf_name,
@@ -119,7 +120,7 @@ CREATE VIEW run_blockprop AS
         JOIN blockprop b USING (run_id);
 
 -- a composition of run attributes and the view on clusterperf results
-CREATE VIEW run_clusterperf AS
+CREATE OR REPLACE VIEW run_clusterperf AS
    SELECT
         r.*,
         c.cdf_name,

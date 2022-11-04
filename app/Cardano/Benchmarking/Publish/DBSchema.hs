@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module  Cardano.Benchmarking.Publish.DBSchema
@@ -12,6 +11,7 @@ import           Control.Monad.Trans.Except.Extra
 import           Data.ByteString.Char8              as BS (ByteString, null,
                                                            readFile, unpack)
 import           Data.Functor.Contravariant         as Contra ((>$<))
+import           Data.List                          (sort)
 import           Data.Text                          as T (Text, intercalate,
                                                           snoc)
 import           Data.Text.Encoding                 as T (decodeLatin1,
@@ -69,13 +69,13 @@ bootstrap schema@(DBSchema schemaName) conn
 -- and grants read access of all views defined to the specified role
 -- is non-destructive
 updateViews :: DBSchema -> ByteString -> Connection -> ExceptT String IO [Text]
-updateViews (DBSchema schemaName) anonRole conn
+updateViews schema@(DBSchema schemaName) anonRole conn
   = do
       viewSql <- handleIOExceptT show $
         BS.readFile =<< getDataFileName "db/bench-data-views.sql"
       let
         script :: DB.Session ()
-        script = DB.sql viewSql
+        script = DB.sql $ setSearchPath schema <> viewSql
 
       _ <- liftDBRun script conn
 
@@ -87,7 +87,7 @@ updateViews (DBSchema schemaName) anonRole conn
 
       _ <- liftDBRun (grant commaSepBS) conn
       _ <- postgrestNotify conn
-      pure views
+      pure $ sort views
   where
     getViews :: DB.Session [Text]
     getViews = statement () $

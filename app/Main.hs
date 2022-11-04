@@ -45,15 +45,24 @@ eval Config{..} dbSettings
     Bootstrap anonRole_
       | not appForce -> putStrLn "'bootstrap' requires -f (force); it is a destructive operation"
       | otherwise -> withDB dbSettings $ \conn -> do
-          let anonRole = BS.pack anonRole_
           result <- runExceptT $ do
               bootstrap dbSchema conn
-              updateViews dbSchema anonRole conn
+              updateViews dbSchema (BS.pack anonRole_) conn
           case result of
-            Left err -> errorMsg $ show err
+            Left err -> errorMsg err
             Right views -> putStrLn $
               "successfully bootstrapped schema: '" ++ appDBSchema ++ "'\n\
               \views exposed to API (role '" ++ anonRole_ ++ "'): " ++ show views
+
+    UpdateViews anonRole_ ->
+      withDB dbSettings $ \conn -> do
+        result <- runExceptT $
+          updateViews dbSchema (BS.pack anonRole_) conn
+        case result of
+          Left err -> errorMsg err
+          Right views -> putStrLn $
+            "views exposed to API (role '" ++ anonRole_ ++ "'): " ++ show views ++
+            "\nNB. if any view has been *renamed*, please drop the old one manually from the DB!"
 
     ImportAll targetDir -> do
       runMetas <- searchRuns targetDir
@@ -83,8 +92,6 @@ eval Config{..} dbSettings
           dbPublishRun dbSchema meta publish `DB.run` conn >>= \case
             Left e      -> errorMsg $ show e
             Right found -> putStrLn $ bool "(run not in DB)" "DONE" found
-
-    cmd -> putStrLn $ "command not yet implemented: " ++ show cmd
 
   where
     dbSchema      = DBSchema (BS.pack appDBSchema)

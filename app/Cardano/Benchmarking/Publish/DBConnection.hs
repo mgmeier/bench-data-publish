@@ -5,7 +5,7 @@ module  Cardano.Benchmarking.Publish.DBConnection
         ) where
 
 import           Control.Exception     (finally)
-import           Data.ByteString.Char8 as BS (ByteString, unpack)
+import           Data.ByteString.Char8 as BS (unpack)
 
 import           Hasql.Connection      as DB
 
